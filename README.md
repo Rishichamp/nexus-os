@@ -66,7 +66,7 @@
 | Layer | Technology |
 |---|---|
 | **Framework** | Next.js 15 (App Router) |
-| **UI** | React 18, Tailwind CSS, shadcn/ui (48 components) |
+| **UI** | React 18, Tailwind CSS 4, shadcn/ui (48 components) |
 | **Animations** | Framer Motion 11 — spring physics, layoutId, AnimatePresence |
 | **Database** | Supabase (hosted PostgreSQL) |
 | **DB Client** | @supabase/supabase-js v2 |

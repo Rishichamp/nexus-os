@@ -27,9 +27,12 @@ Layer definitions:
 - reflection: lessons, mistakes, retrospectives, wins
 - task: concrete todo item with clear completion criteria`;
 
+const MAX_TEXT_CHARS = 20000;
+
 async function handleCapture(body) {
-  const { text, projectId = null } = body;
-  if (!text || !text.trim()) return NextResponse.json({ error: 'text required' }, { status: 400 });
+  const { text, projectId = null } = body || {};
+  if (typeof text !== 'string' || !text.trim()) return NextResponse.json({ error: 'text required' }, { status: 400 });
+  if (text.length > MAX_TEXT_CHARS) return NextResponse.json({ error: `text too long (max ${MAX_TEXT_CHARS} characters)` }, { status: 413 });
   const meta = await llmJSON({
     model: 'gpt-4o-mini',
     system: CLASSIFIER_SYSTEM,
@@ -59,7 +62,9 @@ async function handleCapture(body) {
 
 async function handleListMemories(url) {
   const layer = url.searchParams.get('layer');
-  const limit = parseInt(url.searchParams.get('limit') || '100');
+  // parseInt('abc') is NaN, which made the query fail; keep it within 1..500
+  const parsed = parseInt(url.searchParams.get('limit') || '100', 10);
+  const limit = Number.isFinite(parsed) ? Math.min(Math.max(parsed, 1), 500) : 100;
   const sb = getSupabase();
   let q = sb.from('memories').select('*').order('createdAt', { ascending: false }).limit(limit);
   if (layer && layer !== 'all') q = q.eq('layer', layer);
@@ -168,12 +173,16 @@ Be SPECIFIC. Reference actual entities/tags from the memories. No generic advice
 }
 
 async function handleChat(body) {
-  const { message, sessionId } = body;
-  if (!message) return NextResponse.json({ error: 'message required' }, { status: 400 });
+  const { message, sessionId } = body || {};
+  if (typeof message !== 'string' || !message.trim()) return NextResponse.json({ error: 'message required' }, { status: 400 });
+  if (message.length > MAX_TEXT_CHARS) return NextResponse.json({ error: `message too long (max ${MAX_TEXT_CHARS} characters)` }, { status: 413 });
   const sid = sessionId || uuidv4();
   const sb = getSupabase();
 
-  const { data: history } = await sb.from('chat_messages').select('*').eq('sessionId', sid).order('createdAt', { ascending: true }).limit(20);
+  // The 20 most recent turns, oldest first. (Ascending order + limit returned
+  // the session's *first* 20 messages, so long chats lost their recent context.)
+  const { data: recent } = await sb.from('chat_messages').select('*').eq('sessionId', sid).order('createdAt', { ascending: false }).limit(20);
+  const history = (recent || []).reverse();
   const relevantMemories = await retrieveMemories(message, 8);
   const memoryContext = formatMemoriesForPrompt(relevantMemories);
 
@@ -327,30 +336,31 @@ async function router(request, method) {
 
     if (!p0) return json({ name: 'NEXUS OS API', ok: true });
     if (p0 === 'health') return json({ ok: true, ts: Date.now() });
-    if (p0 === 'seed' && method === 'POST') return handleSeed();
+    if (p0 === 'seed' && method === 'POST') return await handleSeed();
 
-    if (p0 === 'capture' && method === 'POST') return handleCapture(await request.json());
+    if (p0 === 'capture' && method === 'POST') return await handleCapture(await request.json());
 
     if (p0 === 'memories') {
-      if (method === 'GET' && !p1) return handleListMemories(url);
-      if (method === 'DELETE' && p1) return handleDeleteMemory(p1);
-      if (method === 'PATCH' && p1 && p2 === 'toggle') return handleToggleMemory(p1);
+      if (method === 'GET' && !p1) return await handleListMemories(url);
+      if (method === 'DELETE' && p1) return await handleDeleteMemory(p1);
+      if (method === 'PATCH' && p1 && p2 === 'toggle') return await handleToggleMemory(p1);
     }
 
-    if (p0 === 'next-action' && method === 'GET') return handleNextAction();
-    if (p0 === 'agents' && method === 'GET') return handleAgents();
+    if (p0 === 'next-action' && method === 'GET') return await handleNextAction();
+    if (p0 === 'agents' && method === 'GET') return await handleAgents();
 
     if (p0 === 'chat') {
-      if (method === 'POST' && !p1) return handleChat(await request.json());
-      if (method === 'GET' && p1) return handleChatHistory(p1);
+      if (method === 'POST' && !p1) return await handleChat(await request.json());
+      if (method === 'GET' && p1) return await handleChatHistory(p1);
     }
 
-    if (p0 === 'graph' && method === 'GET') return handleGraph();
-    if (p0 === 'stats' && method === 'GET') return handleStats();
+    if (p0 === 'graph' && method === 'GET') return await handleGraph();
+    if (p0 === 'stats' && method === 'GET') return await handleStats();
 
     return json({ error: 'not found', path: parts }, 404);
   } catch (e) {
     console.error('API error:', e);
+    if (e instanceof SyntaxError) return json({ error: 'invalid JSON body' }, 400);
     return json({ error: e.message }, 500);
   }
 }
