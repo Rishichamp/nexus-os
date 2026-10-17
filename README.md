@@ -1,6 +1,7 @@
 <div align="center">
 
 # 🧠 NEXUS OS
+
 ### *Your AI-Powered Second Brain*
 
 **Capture · Classify · Connect · Reason**
@@ -80,6 +81,7 @@
 ## 🚀 Quick Start
 
 ### Prerequisites
+
 - Node.js 18+
 - Yarn (`npm install -g yarn`)
 - A [Supabase](https://supabase.com) account (free)
